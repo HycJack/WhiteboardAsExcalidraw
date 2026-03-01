@@ -66,6 +66,7 @@ export interface AppState {
   toolLocked: boolean;
   history: Element[][];
   historyIndex: number;
+  shouldFocusContent: boolean;
 }
 
 export interface CustomShapeConfig {

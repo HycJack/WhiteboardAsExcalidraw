@@ -24,6 +24,8 @@ function EditorContent() {
         const project = projects.find(p => p.id === projectId);
         if (project) {
           dispatch({ type: 'SET_ELEMENTS', payload: project.elements });
+          // Set shouldFocusContent to true if project has elements
+          dispatch({ type: 'SET_SHOULD_FOCUS_CONTENT', payload: project.elements.length > 0 });
           lastSavedElementsRef.current = JSON.stringify(project.elements);
         } else {
           navigate('/');

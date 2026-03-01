@@ -24,6 +24,7 @@ const initialState: AppState = {
   toolLocked: false,
   history: [[]],
   historyIndex: 0,
+  shouldFocusContent: false,
 };
 
 type Action =
@@ -46,6 +47,7 @@ type Action =
   | { type: 'SET_IS_PANNING'; payload: boolean }
   | { type: 'SET_IS_SPACE_PRESSED'; payload: boolean }
   | { type: 'SET_TOOL_LOCKED'; payload: boolean }
+  | { type: 'SET_SHOULD_FOCUS_CONTENT'; payload: boolean }
   | { type: 'UNDO' }
   | { type: 'REDO' }
   | { type: 'SAVE_HISTORY' };
@@ -117,6 +119,9 @@ function reducer(state: AppState, action: Action): AppState {
 
     case 'SET_TOOL_LOCKED':
       return { ...state, toolLocked: action.payload };
+
+    case 'SET_SHOULD_FOCUS_CONTENT':
+      return { ...state, shouldFocusContent: action.payload };
 
     case 'UNDO':
       if (state.historyIndex <= 0) return state;

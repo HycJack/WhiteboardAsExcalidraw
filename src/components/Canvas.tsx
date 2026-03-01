@@ -1025,10 +1025,12 @@ export default function Canvas() {
     render();
   }, [state.zoom, state.panX, state.panY, render]);
 
-  // Auto focus to content area only on initial load (when elements first become available)
+  // Auto focus to content area based on shouldFocusContent state
   const initialFocusDoneRef = useRef(false);
+  
   useEffect(() => {
-    if (!initialFocusDoneRef.current && state.elements.length > 0 && canvasRef.current) {
+    // Only auto focus if shouldFocusContent is true and we haven't focused yet
+    if (!initialFocusDoneRef.current && canvasRef.current && state.shouldFocusContent && state.elements.length > 0) {
       initialFocusDoneRef.current = true;
       const canvas = canvasRef.current;
       const dpr = window.devicePixelRatio || 1;
@@ -1087,7 +1089,7 @@ export default function Canvas() {
         dispatch({ type: 'SET_PAN', payload: { x: newPanX, y: newPanY } });
       }
     }
-  }, [state.elements]); // Only runs when elements change, but only executes once
+  }, [state.shouldFocusContent, state.elements, dispatch]);
 
   // Function to focus to content area
   const focusToContent = useCallback(() => {
