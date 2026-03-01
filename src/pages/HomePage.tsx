@@ -2,10 +2,13 @@ import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Plus, Upload, Home, Folder, User, Settings, Trash2 } from 'lucide-react';
 import { Project } from '../types/project';
+import ConfirmDialog from '../components/ConfirmDialog';
 
 export default function HomePage() {
   const navigate = useNavigate();
   const [projects, setProjects] = useState<Project[]>([]);
+  const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
+  const [projectToDelete, setProjectToDelete] = useState<string | null>(null);
 
   useEffect(() => {
     const savedProjects = localStorage.getItem('excalidraw-projects');
@@ -32,13 +35,25 @@ export default function HomePage() {
     navigate(`/editor/${projectId}`);
   };
 
-  const deleteProject = (e: React.MouseEvent, projectId: string) => {
+  const handleDeleteClick = (e: React.MouseEvent, projectId: string) => {
     e.stopPropagation();
-    if (confirm('确定要删除这个项目吗？')) {
-      const updatedProjects = projects.filter(p => p.id !== projectId);
+    setProjectToDelete(projectId);
+    setDeleteDialogOpen(true);
+  };
+
+  const confirmDelete = () => {
+    if (projectToDelete) {
+      const updatedProjects = projects.filter(p => p.id !== projectToDelete);
       setProjects(updatedProjects);
       localStorage.setItem('excalidraw-projects', JSON.stringify(updatedProjects));
+      setProjectToDelete(null);
     }
+    setDeleteDialogOpen(false);
+  };
+
+  const cancelDelete = () => {
+    setProjectToDelete(null);
+    setDeleteDialogOpen(false);
   };
 
   const formatDate = (timestamp: number) => {
@@ -106,75 +121,136 @@ export default function HomePage() {
           </button>
 
           {/* Project Cards */}
-          {projects.map((project) => (
-            <div
-              key={project.id}
-              className="aspect-[4/3] bg-white rounded-xl border border-gray-200 overflow-hidden hover:shadow-lg hover:border-gray-300 transition-all text-left group relative"
-            >
-              {/* Delete Button */}
-              <button
-                onClick={(e) => deleteProject(e, project.id)}
-                className="absolute top-2 right-2 z-10 w-8 h-8 flex items-center justify-center rounded-lg bg-white/90 hover:bg-red-50 text-gray-400 hover:text-red-500 opacity-0 group-hover:opacity-100 transition-all shadow-sm"
-                title="删除项目"
-              >
-                <Trash2 className="w-4 h-4" />
-              </button>
+          {projects.map((project) => {
+            // Calculate bounding box and transform for auto-focus
+            let viewBox = "0 0 400 300";
+            let transform = "";
+            
+            if (project.elements.length > 0) {
+              let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+              let hasValidElement = false;
 
-              {/* Card Content */}
-              <button
-                onClick={() => openProject(project.id)}
-                className="w-full h-full flex flex-col"
-              >
-                {/* Thumbnail */}
-                <div className="h-2/3 bg-gray-50 flex items-center justify-center relative overflow-hidden">
-                  {project.elements.length > 0 ? (
-                    <div className="w-full h-full p-4">
-                      <svg
-                        viewBox="0 0 400 300"
-                        className="w-full h-full"
-                        style={{ opacity: 0.6 }}
-                      >
-                        {project.elements.slice(0, 5).map((el, idx) => (
-                          <rect
-                            key={idx}
-                            x={Math.min(el.x1, el.x2)}
-                            y={Math.min(el.y1, el.y2)}
-                            width={Math.abs(el.x2 - el.x1)}
-                            height={Math.abs(el.y2 - el.y1)}
-                            fill={el.fill !== 'transparent' ? el.fill : 'none'}
-                            stroke={el.color}
-                            strokeWidth={1}
-                            rx={el.type === 'rectangle' ? 4 : 0}
-                          />
-                        ))}
-                      </svg>
-                    </div>
-                  ) : (
-                    <div className="text-gray-300">
-                      <svg className="w-12 h-12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1">
-                        <rect x="3" y="3" width="18" height="18" rx="2" />
-                      </svg>
-                    </div>
-                  )}
-                </div>
+              for (const element of project.elements) {
+                const x1 = Math.min(element.x1, element.x2);
+                const y1 = Math.min(element.y1, element.y2);
+                const x2 = Math.max(element.x1, element.x2);
+                const y2 = Math.max(element.y1, element.y2);
 
-                {/* Info */}
-                <div className="h-1/3 p-3 border-t border-gray-100">
-                  <h3 className="text-sm font-medium text-gray-800 truncate mb-1">
-                    {project.name}
-                  </h3>
-                  <div className="flex items-center justify-between">
-                    <span className="text-xs text-gray-400">
-                      更新于 {formatDate(project.updatedAt)}
-                    </span>
-                    <span className="text-xs px-2 py-0.5 bg-blue-50 text-blue-600 rounded">
-                      EXCALIDRAW
-                    </span>
+                if (element.points && element.points.length > 0) {
+                  for (const point of element.points) {
+                    minX = Math.min(minX, point.x);
+                    minY = Math.min(minY, point.y);
+                    maxX = Math.max(maxX, point.x);
+                    maxY = Math.max(maxY, point.y);
+                  }
+                  hasValidElement = true;
+                } else if (x2 - x1 > 0 || y2 - y1 > 0) {
+                  minX = Math.min(minX, x1);
+                  minY = Math.min(minY, y1);
+                  maxX = Math.max(maxX, x2);
+                  maxY = Math.max(maxY, y2);
+                  hasValidElement = true;
+                }
+              }
+
+              if (hasValidElement && isFinite(minX)) {
+                const padding = 50;
+                minX -= padding;
+                minY -= padding;
+                maxX += padding;
+                maxY += padding;
+
+                const contentWidth = maxX - minX;
+                const contentHeight = maxY - minY;
+                const cardWidth = 400;
+                const cardHeight = 300;
+
+                // Calculate zoom to fit content
+                const zoomX = cardWidth / contentWidth;
+                const zoomY = cardHeight / contentHeight;
+                const zoom = Math.min(zoomX, zoomY, 1);
+
+                // Calculate pan to center content
+                const panX = (cardWidth - contentWidth * zoom) / 2 - minX * zoom;
+                const panY = (cardHeight - contentHeight * zoom) / 2 - minY * zoom;
+
+                viewBox = `0 0 ${cardWidth} ${cardHeight}`;
+                transform = `translate(${panX}, ${panY}) scale(${zoom})`;
+              }
+            }
+
+            return (
+              <div
+                key={project.id}
+                className="aspect-[4/3] bg-white rounded-xl border border-gray-200 overflow-hidden hover:shadow-lg hover:border-gray-300 transition-all text-left group relative"
+              >
+                {/* Delete Button */}
+                <button
+                  onClick={(e) => handleDeleteClick(e, project.id)}
+                  className="absolute top-2 right-2 z-10 w-8 h-8 flex items-center justify-center rounded-lg bg-white/90 hover:bg-red-50 text-gray-400 hover:text-red-500 opacity-0 group-hover:opacity-100 transition-all shadow-sm"
+                  title="删除项目"
+                >
+                  <Trash2 className="w-4 h-4" />
+                </button>
+
+                {/* Card Content */}
+                <button
+                  onClick={() => openProject(project.id)}
+                  className="w-full h-full flex flex-col"
+                >
+                  {/* Thumbnail */}
+                  <div className="h-2/3 bg-gray-50 flex items-center justify-center relative overflow-hidden">
+                    {project.elements.length > 0 ? (
+                      <div className="w-full h-full p-4">
+                        <svg
+                          viewBox={viewBox}
+                          className="w-full h-full"
+                          style={{ opacity: 0.6 }}
+                        >
+                          <g transform={transform}>
+                            {project.elements.slice(0, 10).map((el, idx) => (
+                              <rect
+                                key={idx}
+                                x={Math.min(el.x1, el.x2)}
+                                y={Math.min(el.y1, el.y2)}
+                                width={Math.abs(el.x2 - el.x1)}
+                                height={Math.abs(el.y2 - el.y1)}
+                                fill={el.fill !== 'transparent' ? el.fill : 'none'}
+                                stroke={el.color}
+                                strokeWidth={1}
+                                rx={el.type === 'rectangle' ? 4 : 0}
+                              />
+                            ))}
+                          </g>
+                        </svg>
+                      </div>
+                    ) : (
+                      <div className="text-gray-300">
+                        <svg className="w-12 h-12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1">
+                          <rect x="3" y="3" width="18" height="18" rx="2" />
+                        </svg>
+                      </div>
+                    )}
                   </div>
-                </div>
-              </button>
-            </div>
-          ))}
+
+                  {/* Info */}
+                  <div className="h-1/3 p-3 border-t border-gray-100">
+                    <h3 className="text-sm font-medium text-gray-800 truncate mb-1">
+                      {project.name}
+                    </h3>
+                    <div className="flex items-center justify-between">
+                      <span className="text-xs text-gray-400">
+                        更新于 {formatDate(project.updatedAt)}
+                      </span>
+                      <span className="text-xs px-2 py-0.5 bg-blue-50 text-blue-600 rounded">
+                        EXCALIDRAW
+                      </span>
+                    </div>
+                  </div>
+                </button>
+              </div>
+            );
+          })}
         </div>
 
         {projects.length === 0 && (
@@ -189,6 +265,15 @@ export default function HomePage() {
           </div>
         )}
       </div>
+
+      {/* Delete Confirmation Dialog */}
+      <ConfirmDialog
+        isOpen={deleteDialogOpen}
+        title="删除项目"
+        message="确定要删除这个项目吗？此操作无法撤销。"
+        onConfirm={confirmDelete}
+        onCancel={cancelDelete}
+      />
     </div>
   );
 }

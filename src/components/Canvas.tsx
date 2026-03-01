@@ -3,6 +3,7 @@ import rough from 'roughjs';
 import { useStore } from '../store';
 import { Element, Point, ToolType } from '../types';
 import { ShapeRegistry } from '../utils/shapes';
+import { RendererFactory, RenderOptions } from '../renderers';
 
 type RoughCanvasType = ReturnType<typeof rough.canvas>;
 
@@ -29,6 +30,11 @@ export default function Canvas() {
   const [isRotating, setIsRotating] = useState(false);
   const [rotateStartElement, setRotateStartElement] = useState<Element | null>(null);
   const rotateStartAngleRef = useRef<number>(0);
+
+  // 框选相关状态
+  const [isSelecting, setIsSelecting] = useState(false);
+  const [selectionBox, setSelectionBox] = useState<{x1: number, y1: number, x2: number, y2: number} | null>(null);
+  const [selectionStartPos, setSelectionStartPos] = useState<Point | null>(null);
 
   stateRef.current = state;
   currentElementRef.current = currentElement;
@@ -63,12 +69,14 @@ export default function Canvas() {
   }, []);
 
   const getCursorStyle = useCallback((): string => {
+    if (state.isPanning) return 'grabbing';
     if (state.isSpacePressed) return 'grab';
+    if (state.tool === 'eraser') return 'not-allowed';
     if (state.tool !== 'select') return 'crosshair';
     if (isRotating) return 'grabbing';
-    
-    const element = state.selectedElements.length > 0 
-      ? state.elements.find(el => el.id === state.selectedElements[0]) 
+
+    const element = state.selectedElements.length > 0
+      ? state.elements.find(el => el.id === state.selectedElements[0])
       : null;
     const rotation = element?.rotation || 0;
 
@@ -82,7 +90,7 @@ export default function Canvas() {
       return getRotatedCursor(hoveredHandle, rotation);
     }
     return 'default';
-  }, [state.isSpacePressed, state.tool, isResizing, resizeHandle, hoveredHandle, isRotating, state.selectedElements, state.elements, getRotatedCursor]);
+  }, [state.isSpacePressed, state.isPanning, state.tool, isResizing, resizeHandle, hoveredHandle, isRotating, state.selectedElements, state.elements, getRotatedCursor]);
 
   const getMousePos = useCallback((e: React.MouseEvent | MouseEvent): Point => {
     const canvas = canvasRef.current;
@@ -96,7 +104,7 @@ export default function Canvas() {
   }, []);
 
   const drawElement = useCallback((rc: RoughCanvasType, element: Element, ctx: CanvasRenderingContext2D, selectedElements: string[]) => {
-    const options = {
+    const options: RenderOptions = {
       stroke: element.color,
       strokeWidth: element.strokeWidth,
       roughness: element.roughness || 1.5,
@@ -118,101 +126,22 @@ export default function Canvas() {
       ctx.translate(-cx, -cy);
     }
 
-    switch (element.type) {
-      case 'rectangle':
-        if (element.fill && element.fill !== 'transparent') {
-          rc.rectangle(element.x1, element.y1, element.x2 - element.x1, element.y2 - element.y1, {
-            ...options,
-            fill: element.fill,
-            fillStyle: element.fillStyle || 'hachure'
-          });
-        }
-        rc.rectangle(element.x1, element.y1, element.x2 - element.x1, element.y2 - element.y1, options);
-        break;
-
-      case 'ellipse': {
-        const cx = (element.x1 + element.x2) / 2;
-        const cy = (element.y1 + element.y2) / 2;
-        const rx = Math.abs(element.x2 - element.x1) / 2;
-        const ry = Math.abs(element.y2 - element.y1) / 2;
-        if (rx > 0 && ry > 0) {
-          if (element.fill && element.fill !== 'transparent') {
-            rc.ellipse(cx, cy, rx * 2, ry * 2, {
-              ...options,
-              fill: element.fill,
-              fillStyle: element.fillStyle || 'hachure'
-            });
-          }
-          rc.ellipse(cx, cy, rx * 2, ry * 2, options);
-        }
-        break;
+    const renderer = RendererFactory.createRenderer(element.type);
+    if (renderer) {
+      renderer.render(rc as any, element, options, ctx);
+    } else if (ShapeRegistry.has(element.type)) {
+      const customShape = ShapeRegistry.get(element.type);
+      if (customShape?.renderer) {
+        // Add fill options for custom shapes
+        // Only apply fill when fillStyle is not 'none' and fill is not transparent
+        const hasFill = element.fillStyle !== 'none' && element.fill && element.fill !== 'transparent';
+        const shapeOptions = {
+          ...options,
+          fill: hasFill ? element.fill : undefined,
+          fillStyle: element.fillStyle === 'none' ? undefined : (element.fillStyle || 'hachure')
+        };
+        customShape.renderer(rc, element, shapeOptions);
       }
-
-      case 'diamond': {
-        const mx = (element.x1 + element.x2) / 2;
-        const my = (element.y1 + element.y2) / 2;
-        const diamondPoints: [number, number][] = [
-          [mx, element.y1],
-          [element.x2, my],
-          [mx, element.y2],
-          [element.x1, my]
-        ];
-        if (element.fill && element.fill !== 'transparent') {
-          rc.polygon(diamondPoints, {
-            ...options,
-            fill: element.fill,
-            fillStyle: element.fillStyle || 'hachure'
-          });
-        }
-        rc.polygon(diamondPoints, options);
-        break;
-      }
-
-      case 'arrow':
-        rc.line(element.x1, element.y1, element.x2, element.y2, options);
-        const angle = Math.atan2(element.y2 - element.y1, element.x2 - element.x1);
-        const headLen = 15 + element.strokeWidth;
-        const arrowPoints: [number, number][] = [
-          [element.x2, element.y2],
-          [element.x2 - headLen * Math.cos(angle - Math.PI / 6), element.y2 - headLen * Math.sin(angle - Math.PI / 6)],
-          [element.x2 - headLen * Math.cos(angle + Math.PI / 6), element.y2 - headLen * Math.sin(angle + Math.PI / 6)]
-        ];
-        rc.polygon(arrowPoints, options);
-        break;
-
-      case 'line':
-        rc.line(element.x1, element.y1, element.x2, element.y2, options);
-        break;
-
-      case 'freedraw':
-        if (element.points && element.points.length > 1) {
-          for (let i = 1; i < element.points.length; i++) {
-            rc.line(
-              element.points[i - 1].x,
-              element.points[i - 1].y,
-              element.points[i].x,
-              element.points[i].y,
-              options
-            );
-          }
-        }
-        break;
-
-      case 'text':
-        if (element.text) {
-          ctx.font = `${20 + element.strokeWidth * 2}px 'Patrick Hand', cursive`;
-          ctx.fillStyle = element.color;
-          ctx.fillText(element.text, element.x1, element.y1);
-        }
-        break;
-
-      default:
-        if (ShapeRegistry.has(element.type)) {
-          const customShape = ShapeRegistry.get(element.type);
-          if (customShape?.renderer) {
-            customShape.renderer(rc, element, options);
-          }
-        }
     }
 
     if (selectedElements.includes(element.id)) {
@@ -223,10 +152,32 @@ export default function Canvas() {
   }, []);
 
   const drawSelectionBox = useCallback((ctx: CanvasRenderingContext2D, element: Element) => {
-    const x = Math.min(element.x1, element.x2);
-    const y = Math.min(element.y1, element.y2);
-    const w = Math.abs(element.x2 - element.x1);
-    const h = Math.abs(element.y2 - element.y1);
+    let x: number, y: number, w: number, h: number;
+
+    // For freedraw, use the actual points bounds
+    if (element.type === 'freedraw' && element.points && element.points.length > 0) {
+      let minX = element.points[0].x;
+      let maxX = element.points[0].x;
+      let minY = element.points[0].y;
+      let maxY = element.points[0].y;
+
+      for (const point of element.points) {
+        minX = Math.min(minX, point.x);
+        maxX = Math.max(maxX, point.x);
+        minY = Math.min(minY, point.y);
+        maxY = Math.max(maxY, point.y);
+      }
+
+      x = minX;
+      y = minY;
+      w = maxX - minX;
+      h = maxY - minY;
+    } else {
+      x = Math.min(element.x1, element.x2);
+      y = Math.min(element.y1, element.y2);
+      w = Math.abs(element.x2 - element.x1);
+      h = Math.abs(element.y2 - element.y1);
+    }
 
     ctx.save();
 
@@ -301,6 +252,7 @@ export default function Canvas() {
 
       const currentState = stateRef.current;
       const currentEl = currentElementRef.current;
+      const dpr = window.devicePixelRatio || 1;
 
       if (!offscreenCanvasRef.current) {
         offscreenCanvasRef.current = document.createElement('canvas');
@@ -316,8 +268,8 @@ export default function Canvas() {
       offCtx.fillRect(0, 0, offscreen.width, offscreen.height);
 
       offCtx.save();
-      offCtx.translate(currentState.panX, currentState.panY);
-      offCtx.scale(currentState.zoom, currentState.zoom);
+      offCtx.translate(currentState.panX * dpr, currentState.panY * dpr);
+      offCtx.scale(currentState.zoom * dpr, currentState.zoom * dpr);
 
       const rc = rough.canvas(offscreen);
 
@@ -329,6 +281,23 @@ export default function Canvas() {
         drawElement(rc, currentEl, offCtx, []);
       }
 
+      // 绘制框选框
+      if (selectionBox) {
+        const minX = Math.min(selectionBox.x1, selectionBox.x2);
+        const maxX = Math.max(selectionBox.x1, selectionBox.x2);
+        const minY = Math.min(selectionBox.y1, selectionBox.y2);
+        const maxY = Math.max(selectionBox.y1, selectionBox.y2);
+
+        offCtx.save();
+        offCtx.strokeStyle = '#6965db';
+        offCtx.fillStyle = 'rgba(105, 101, 219, 0.1)';
+        offCtx.lineWidth = 1;
+        offCtx.setLineDash([5, 5]);
+        offCtx.fillRect(minX, minY, maxX - minX, maxY - minY);
+        offCtx.strokeRect(minX, minY, maxX - minX, maxY - minY);
+        offCtx.restore();
+      }
+
       offCtx.restore();
 
       const ctx = canvas.getContext('2d');
@@ -338,7 +307,7 @@ export default function Canvas() {
 
       animationFrameRef.current = null;
     });
-  }, [drawElement]);
+  }, [drawElement, selectionBox]);
 
   const getSelectedElement = (): Element | null => {
     if (state.selectedElements.length === 0) return null;
@@ -435,6 +404,16 @@ export default function Canvas() {
         const textWidth = element.text ? element.text.length * 12 : 100;
         return testX >= element.x1 && testX <= element.x1 + textWidth &&
                testY >= element.y1 - 20 && testY <= element.y1 + 5;
+
+      case 'image':
+      case 'webpage':
+      case 'geogebra': {
+        const embedMinX = Math.min(element.x1, element.x2) - tolerance;
+        const embedMaxX = Math.max(element.x1, element.x2) + tolerance;
+        const embedMinY = Math.min(element.y1, element.y2) - tolerance;
+        const embedMaxY = Math.max(element.y1, element.y2) + tolerance;
+        return testX >= embedMinX && testX <= embedMaxX && testY >= embedMinY && testY <= embedMaxY;
+      }
 
       default:
         return false;
@@ -551,11 +530,19 @@ export default function Canvas() {
             dispatch({ type: 'SELECT_ELEMENTS', payload: [...state.selectedElements, element.id] });
           }
         }
+        render();
+        return;
       } else {
-        dispatch({ type: 'SELECT_ELEMENTS', payload: [] });
+        // 点击空白处，开始框选
+        if (!e.shiftKey) {
+          dispatch({ type: 'SELECT_ELEMENTS', payload: [] });
+        }
+        setIsSelecting(true);
+        setSelectionStartPos(pos);
+        setSelectionBox({ x1: pos.x, y1: pos.y, x2: pos.x, y2: pos.y });
+        render();
+        return;
       }
-      render();
-      return;
     }
 
     // 文本工具：点击时直接显示输入框
@@ -569,6 +556,90 @@ export default function Canvas() {
       setTimeout(() => {
         textInputRef.current?.focus();
       }, 0);
+      return;
+    }
+
+    // 橡皮擦工具：点击删除元素
+    if (state.tool === 'eraser') {
+      const element = getElementAtPosition(pos.x, pos.y);
+      if (element) {
+        dispatch({ type: 'DELETE_ELEMENTS', payload: [element.id] });
+        dispatch({ type: 'SAVE_HISTORY' });
+        render();
+      }
+      return;
+    }
+
+    // 图片工具：点击时打开文件选择
+    if (state.tool === 'image') {
+      const input = document.createElement('input');
+      input.type = 'file';
+      input.accept = 'image/*';
+      input.onchange = (e) => {
+        const file = (e.target as HTMLInputElement).files?.[0];
+        if (file) {
+          const reader = new FileReader();
+          reader.onload = (event) => {
+            const imageSrc = event.target?.result as string;
+            // 创建临时图片获取实际尺寸
+            const img = new Image();
+            img.onload = () => {
+              const element = createElement('image', pos.x, pos.y, pos.x + img.width, pos.y + img.height);
+              element.imageSrc = imageSrc;
+              dispatch({ type: 'ADD_ELEMENT', payload: element });
+              dispatch({ type: 'SAVE_HISTORY' });
+              dispatch({ type: 'SELECT_ELEMENTS', payload: [element.id] });
+              if (!state.toolLocked) {
+                dispatch({ type: 'SET_TOOL', payload: 'select' });
+              }
+              render();
+            };
+            img.src = imageSrc;
+          };
+          reader.readAsDataURL(file);
+        }
+      };
+      input.click();
+      return;
+    }
+
+    // 网页工具：点击时输入网址
+    if (state.tool === 'webpage') {
+      const url = prompt('请输入网页地址:', 'https://');
+      if (url && url !== 'https://') {
+        const element = createElement('webpage', pos.x, pos.y, pos.x + 800, pos.y + 600);
+        element.text = url;
+        dispatch({ type: 'ADD_ELEMENT', payload: element });
+        dispatch({ type: 'SAVE_HISTORY' });
+        dispatch({ type: 'SELECT_ELEMENTS', payload: [element.id] });
+        if (!state.toolLocked) {
+          dispatch({ type: 'SET_TOOL', payload: 'select' });
+        }
+        render();
+      }
+      return;
+    }
+
+    // GeoGebra工具：点击时输入GeoGebra资源ID或URL
+    if (state.tool === 'geogebra') {
+      const input = prompt('请输入 GeoGebra 资源 ID 或链接:', '');
+      if (input) {
+        // 提取资源ID
+        let resourceId = input;
+        const match = input.match(/(?:geogebra\.org\/m\/|material\/|id=)([a-zA-Z0-9]+)/);
+        if (match) {
+          resourceId = match[1];
+        }
+        const element = createElement('geogebra', pos.x, pos.y, pos.x + 800, pos.y + 600);
+        element.text = resourceId;
+        dispatch({ type: 'ADD_ELEMENT', payload: element });
+        dispatch({ type: 'SAVE_HISTORY' });
+        dispatch({ type: 'SELECT_ELEMENTS', payload: [element.id] });
+        if (!state.toolLocked) {
+          dispatch({ type: 'SET_TOOL', payload: 'select' });
+        }
+        render();
+      }
       return;
     }
 
@@ -589,6 +660,18 @@ export default function Canvas() {
 
     if (state.isPanning) {
       dispatch({ type: 'SET_PAN', payload: { x: state.panX + e.movementX, y: state.panY + e.movementY } });
+      render();
+      return;
+    }
+
+    // 处理框选
+    if (isSelecting && selectionStartPos) {
+      setSelectionBox({
+        x1: selectionStartPos.x,
+        y1: selectionStartPos.y,
+        x2: pos.x,
+        y2: pos.y
+      });
       render();
       return;
     }
@@ -652,11 +735,30 @@ export default function Canvas() {
           break;
       }
 
+      // Calculate scale factors for freedraw
+      const oldWidth = element.x2 - element.x1;
+      const oldHeight = element.y2 - element.y1;
+      const newWidth = newX2 - newX1;
+      const newHeight = newY2 - newY1;
+      
+      const updates: any = { x1: newX1, y1: newY1, x2: newX2, y2: newY2 };
+      
+      // For freedraw, scale the points
+      if (element.type === 'freedraw' && element.points && element.points.length > 0) {
+        const scaleX = oldWidth !== 0 ? newWidth / oldWidth : 1;
+        const scaleY = oldHeight !== 0 ? newHeight / oldHeight : 1;
+        
+        updates.points = element.points.map(p => ({
+          x: newX1 + (p.x - element.x1) * scaleX,
+          y: newY1 + (p.y - element.y1) * scaleY
+        }));
+      }
+
       dispatch({
         type: 'UPDATE_ELEMENT',
         payload: {
           id: state.selectedElements[0],
-          updates: { x1: newX1, y1: newY1, x2: newX2, y2: newY2 }
+          updates
         }
       });
       render();
@@ -738,6 +840,36 @@ export default function Canvas() {
   const handleMouseUp = () => {
     if (state.isPanning) {
       dispatch({ type: 'SET_IS_PANNING', payload: false });
+      return;
+    }
+
+    // 处理框选结束
+    if (isSelecting && selectionBox) {
+      const minX = Math.min(selectionBox.x1, selectionBox.x2);
+      const maxX = Math.max(selectionBox.x1, selectionBox.x2);
+      const minY = Math.min(selectionBox.y1, selectionBox.y2);
+      const maxY = Math.max(selectionBox.y1, selectionBox.y2);
+
+      // 只有当框选区域大于一定阈值时才选择元素
+      if (Math.abs(selectionBox.x2 - selectionBox.x1) > 5 || Math.abs(selectionBox.y2 - selectionBox.y1) > 5) {
+        const selectedIds = state.elements
+          .filter(el => {
+            const elMinX = Math.min(el.x1, el.x2);
+            const elMaxX = Math.max(el.x1, el.x2);
+            const elMinY = Math.min(el.y1, el.y2);
+            const elMaxY = Math.max(el.y1, el.y2);
+            // 检查元素是否与框选区域相交
+            return elMaxX >= minX && elMinX <= maxX && elMaxY >= minY && elMinY <= maxY;
+          })
+          .map(el => el.id);
+
+        dispatch({ type: 'SELECT_ELEMENTS', payload: selectedIds });
+      }
+
+      setIsSelecting(false);
+      setSelectionBox(null);
+      setSelectionStartPos(null);
+      render();
       return;
     }
 
@@ -860,8 +992,17 @@ export default function Canvas() {
   useEffect(() => {
     const handleResize = () => {
       if (canvasRef.current) {
-        canvasRef.current.width = window.innerWidth;
-        canvasRef.current.height = window.innerHeight;
+        const canvas = canvasRef.current;
+        const dpr = window.devicePixelRatio || 1;
+
+        // Set CSS size to window size
+        canvas.style.width = window.innerWidth + 'px';
+        canvas.style.height = window.innerHeight + 'px';
+
+        // Set actual canvas size (scaled by DPR for high DPI displays)
+        canvas.width = window.innerWidth * dpr;
+        canvas.height = window.innerHeight * dpr;
+
         render();
       }
     };
@@ -878,6 +1019,178 @@ export default function Canvas() {
   useEffect(() => {
     render();
   }, [state.elements, render]);
+
+  // Re-render when zoom or pan changes
+  useEffect(() => {
+    render();
+  }, [state.zoom, state.panX, state.panY, render]);
+
+  // Auto focus to content area only on initial load (when elements first become available)
+  const initialFocusDoneRef = useRef(false);
+  useEffect(() => {
+    if (!initialFocusDoneRef.current && state.elements.length > 0 && canvasRef.current) {
+      initialFocusDoneRef.current = true;
+      const canvas = canvasRef.current;
+      const dpr = window.devicePixelRatio || 1;
+      // Use CSS pixels (logical pixels) for calculations
+      const canvasWidth = (canvas.width / dpr) || window.innerWidth;
+      const canvasHeight = (canvas.height / dpr) || window.innerHeight;
+
+      // Calculate bounding box of all elements
+      let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+      let hasValidElement = false;
+
+      for (const element of state.elements) {
+        const x1 = Math.min(element.x1, element.x2);
+        const y1 = Math.min(element.y1, element.y2);
+        const x2 = Math.max(element.x1, element.x2);
+        const y2 = Math.max(element.y1, element.y2);
+
+        if (element.points && element.points.length > 0) {
+          for (const point of element.points) {
+            minX = Math.min(minX, point.x);
+            minY = Math.min(minY, point.y);
+            maxX = Math.max(maxX, point.x);
+            maxY = Math.max(maxY, point.y);
+          }
+          hasValidElement = true;
+        } else if (x2 - x1 > 0 || y2 - y1 > 0) {
+          minX = Math.min(minX, x1);
+          minY = Math.min(minY, y1);
+          maxX = Math.max(maxX, x2);
+          maxY = Math.max(maxY, y2);
+          hasValidElement = true;
+        }
+      }
+
+      if (hasValidElement && isFinite(minX)) {
+        // Add padding
+        const padding = 100;
+        minX -= padding;
+        minY -= padding;
+        maxX += padding;
+        maxY += padding;
+
+        const contentWidth = maxX - minX;
+        const contentHeight = maxY - minY;
+
+        // Calculate zoom to fit content (using CSS pixels)
+        const zoomX = canvasWidth / contentWidth;
+        const zoomY = canvasHeight / contentHeight;
+        const newZoom = Math.min(zoomX, zoomY, 1); // Max zoom 100%
+
+        // Calculate pan to center content
+        const newPanX = (canvasWidth - contentWidth * newZoom) / 2 - minX * newZoom;
+        const newPanY = (canvasHeight - contentHeight * newZoom) / 2 - minY * newZoom;
+
+        dispatch({ type: 'SET_ZOOM', payload: newZoom });
+        dispatch({ type: 'SET_PAN', payload: { x: newPanX, y: newPanY } });
+      }
+    }
+  }, [state.elements]); // Only runs when elements change, but only executes once
+
+  // Function to focus to content area
+  const focusToContent = useCallback(() => {
+    if (state.elements.length === 0 || !canvasRef.current) return;
+
+    const canvas = canvasRef.current;
+    const dpr = window.devicePixelRatio || 1;
+    const canvasWidth = (canvas.width / dpr) || window.innerWidth;
+    const canvasHeight = (canvas.height / dpr) || window.innerHeight;
+
+    // Calculate bounding box of all elements
+    let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+    let hasValidElement = false;
+
+    for (const element of state.elements) {
+      const x1 = Math.min(element.x1, element.x2);
+      const y1 = Math.min(element.y1, element.y2);
+      const x2 = Math.max(element.x1, element.x2);
+      const y2 = Math.max(element.y1, element.y2);
+
+      if (element.points && element.points.length > 0) {
+        for (const point of element.points) {
+          minX = Math.min(minX, point.x);
+          minY = Math.min(minY, point.y);
+          maxX = Math.max(maxX, point.x);
+          maxY = Math.max(maxY, point.y);
+        }
+        hasValidElement = true;
+      } else if (x2 - x1 > 0 || y2 - y1 > 0) {
+        minX = Math.min(minX, x1);
+        minY = Math.min(minY, y1);
+        maxX = Math.max(maxX, x2);
+        maxY = Math.max(maxY, y2);
+        hasValidElement = true;
+      }
+    }
+
+    if (hasValidElement && isFinite(minX)) {
+      const padding = 100;
+      minX -= padding;
+      minY -= padding;
+      maxX += padding;
+      maxY += padding;
+
+      const contentWidth = maxX - minX;
+      const contentHeight = maxY - minY;
+
+      const zoomX = canvasWidth / contentWidth;
+      const zoomY = canvasHeight / contentHeight;
+      const newZoom = Math.min(zoomX, zoomY, 1);
+
+      const newPanX = (canvasWidth - contentWidth * newZoom) / 2 - minX * newZoom;
+      const newPanY = (canvasHeight - contentHeight * newZoom) / 2 - minY * newZoom;
+
+      dispatch({ type: 'SET_ZOOM', payload: newZoom });
+      dispatch({ type: 'SET_PAN', payload: { x: newPanX, y: newPanY } });
+    }
+  }, [state.elements, dispatch]);
+
+  // Check if content is visible in viewport
+  const isContentVisible = useCallback(() => {
+    if (state.elements.length === 0) return true;
+
+    // Calculate content bounds
+    let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+    for (const element of state.elements) {
+      const x1 = Math.min(element.x1, element.x2);
+      const y1 = Math.min(element.y1, element.y2);
+      const x2 = Math.max(element.x1, element.x2);
+      const y2 = Math.max(element.y1, element.y2);
+
+      if (element.points && element.points.length > 0) {
+        for (const point of element.points) {
+          minX = Math.min(minX, point.x);
+          minY = Math.min(minY, point.y);
+          maxX = Math.max(maxX, point.x);
+          maxY = Math.max(maxY, point.y);
+        }
+      } else {
+        minX = Math.min(minX, x1);
+        minY = Math.min(minY, y1);
+        maxX = Math.max(maxX, x2);
+        maxY = Math.max(maxY, y2);
+      }
+    }
+
+    if (!isFinite(minX)) return true;
+
+    // Check if any part of content is visible in viewport
+    const viewportLeft = -state.panX / state.zoom;
+    const viewportTop = -state.panY / state.zoom;
+    const viewportRight = viewportLeft + window.innerWidth / state.zoom;
+    const viewportBottom = viewportTop + window.innerHeight / state.zoom;
+
+    // Content is visible if it overlaps with viewport
+    return !(maxX < viewportLeft || minX > viewportRight || maxY < viewportTop || minY > viewportBottom);
+  }, [state.elements, state.panX, state.panY, state.zoom]);
+
+  const [showFocusButton, setShowFocusButton] = useState(false);
+
+  useEffect(() => {
+    setShowFocusButton(state.elements.length > 0 && !isContentVisible());
+  }, [state.elements, state.panX, state.panY, state.zoom, isContentVisible]);
 
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
@@ -898,14 +1211,6 @@ export default function Canvas() {
 
       if (!e.ctrlKey && !e.metaKey && !e.altKey) {
         switch (e.key.toLowerCase()) {
-          case 'v': dispatch({ type: 'SET_TOOL', payload: 'select' }); break;
-          case 'r': dispatch({ type: 'SET_TOOL', payload: 'rectangle' }); break;
-          case 'o': dispatch({ type: 'SET_TOOL', payload: 'ellipse' }); break;
-          case 'd': dispatch({ type: 'SET_TOOL', payload: 'diamond' }); break;
-          case 'a': dispatch({ type: 'SET_TOOL', payload: 'arrow' }); break;
-          case 'l': dispatch({ type: 'SET_TOOL', payload: 'line' }); break;
-          case 'p': dispatch({ type: 'SET_TOOL', payload: 'freedraw' }); break;
-          case 't': dispatch({ type: 'SET_TOOL', payload: 'text' }); break;
           case 'delete':
           case 'backspace':
             if (state.selectedElements.length > 0) {
@@ -974,6 +1279,20 @@ export default function Canvas() {
           }}
           autoFocus
         />
+      )}
+      {/* 回到内容区域按钮 */}
+      {showFocusButton && (
+        <button
+          onClick={focusToContent}
+          className="fixed bottom-20 left-1/2 -translate-x-1/2 z-50 flex items-center gap-2 px-4 py-2 bg-[#6965db] text-white rounded-full shadow-lg hover:bg-[#5a52d0] transition-all animate-in fade-in slide-in-from-bottom-2"
+          title="回到内容区域"
+        >
+          <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+            <circle cx="12" cy="12" r="10"/>
+            <path d="M12 16v-4M12 8h.01"/>
+          </svg>
+          <span className="text-sm font-medium">回到内容区域</span>
+        </button>
       )}
     </>
   );

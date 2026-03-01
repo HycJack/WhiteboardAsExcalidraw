@@ -106,6 +106,27 @@ export default function Toolbar() {
         </svg>
       ),
       title: '文本 (T)'
+    },
+    {
+      tool: 'image',
+      icon: (
+        <svg className="w-5 h-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+          <rect x="3" y="3" width="18" height="18" rx="2" ry="2"/>
+          <circle cx="8.5" cy="8.5" r="1.5"/>
+          <polyline points="21 15 16 10 5 21"/>
+        </svg>
+      ),
+      title: '插入图片'
+    },
+    {
+      tool: 'eraser',
+      icon: (
+        <svg className="w-5 h-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+          <path d="M20 20H7L3 16C2 15 2 13 3 12L13 2L22 11L20 20Z"/>
+          <path d="M17 17L7 7"/>
+        </svg>
+      ),
+      title: '橡皮擦'
     }
   ];
 
@@ -132,6 +153,21 @@ export default function Toolbar() {
       </button>
 
       <div className="w-px h-7 bg-gray-200 mx-1" />
+
+      <button
+        className={`w-10 h-10 flex items-center justify-center rounded-lg transition-all ${
+          state.isSpacePressed ? 'bg-[#6965db] text-white' : 'hover:bg-gray-100'
+        }`}
+        onClick={() => dispatch({ type: 'SET_IS_SPACE_PRESSED', payload: !state.isSpacePressed })}
+        title="抓手工具 (空格键)"
+      >
+        <svg className="w-5 h-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+          <path d="M18 11V6a2 2 0 0 0-2-2v0a2 2 0 0 0-2 2v0"/>
+          <path d="M14 10V4a2 2 0 0 0-2-2v0a2 2 0 0 0-2 2v2"/>
+          <path d="M10 10.5V6a2 2 0 0 0-2-2v0a2 2 0 0 0-2 2v8"/>
+          <path d="M18 8a2 2 0 1 1 4 0v6a8 8 0 0 1-8 8h-2c-2.8 0-4.5-.86-5.99-2.34l-3.6-3.6a2 2 0 0 1 2.83-2.82L7 15"/>
+        </svg>
+      </button>
 
       {tools.map(({ tool, icon, title }) => (
         <ToolButton key={tool} tool={tool} icon={icon} title={title} />
@@ -170,6 +206,32 @@ export default function Toolbar() {
           </div>
         )}
       </div>
+
+      <div className="w-px h-7 bg-gray-200 mx-1" />
+
+      <ToolButton
+        tool="webpage"
+        icon={(
+          <svg className="w-5 h-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+            <circle cx="12" cy="12" r="10"/>
+            <line x1="2" y1="12" x2="22" y2="12"/>
+            <path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"/>
+          </svg>
+        )}
+        title="插入网页"
+      />
+
+      <ToolButton
+        tool="geogebra"
+        icon={(
+          <img
+            src="data:image/x-icon;base64,AAABAAEAEBAAAAEAIABoBAAAFgAAACgAAAAQAAAAIAAAAAEAIAAAAAAAAAQAABILAAASCwAAAAAAAAAAAAAAAAAAAAAAAAAAAAcWDQ1YIxUVhAoGBjdFTEwCbWxsAmVlZQAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAADAcHAAYDg5NhlBQ679ycv9fOzvUTU5OmWZmZpJlZWV6YmNjOhANDUAgExN3EQoKQgAAAAMAAAAAAAAAAAAAAABSMTEALRwcf818fP//np7/lltb+kZFRcZmZma9ZmZm3VJSUuVnQUHtvnFx/3ZGRuIOCAg+IxUVAAAAAABlZWUAcHNzEUZDQ7VySEj+qWRk+lQyMrkMEhIhcHBwDGptbR82MDCHq2ho+v+fn/+8cXH7IxUVY0QoKAAAAAAAZWVlAGVlZWNjZGTkNzU1dBMKCloGBAQhLRoaAAAAAAATDAwAAAAAI2I7O8itZ2f9Z0ND+jQzM2QvJiYAZWVlAGdnZwdmZmakZmZmpGdnZwZmZmYAAAAAAAAAAAAAAAAAAAAAAAAAAAEHAwMqHRMTZUxMTMVkZGS7ZmZmEmVlZQBVV1cWVlhYx1JUVHiFh4cAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAsrm5AFlYWABoaGhFZmZm5WZmZldkZGQAJBgYa2E/P+5VNjbNDwgINycXFwAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAABfYGAAYGFhD1xdXb9XWFiUAAAAAWc9PejtjY3/14CA/0AmJp4AAAAGAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAIxkZABAMDDJNNjbUVjo63x0TE1dgOTni5IiI/816ev88JSWfAAAABQICAgAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAU6IyOaznp6/+WIiP9gOTniGxAQVFMxMbhPOTnkTUxMtmtsbBdkZGQAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAGQScnntiBgf/ujo7/Zz096AAAAAEAAAAMT1BQP2VlZdNlZWWpZmZmJwoICCMXDg5bCQYGMgAAAAJQUFAAbW9vDkhGRqNaPz/3ZDw8zyIVFWUAAAAAZWVlAGVlZQBlZWU8ZmZmw1ZXV9RYODjRq2Zm+nNFRdgiHR1LaGhoQWVlZadlZWXoUFJSbgAAABQAAAACAAAAAAAAAABlZWUAZWVlAG1ubhw6OTmXml5e+/+fn//DdXX/RT0962ZmZuBlZWXJZWVlWGxsbAVoaGgAAAAAAAAAAAAAAAAAAAAAAAAAAAAOCQkAAAAAIWM7O8u/cnL/gU1N6DgzM31oaWk9ZWVlFWVlZQFlZWUAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAEKBgY5IhQUhhUNDVIAAAAFAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAwP8AAMADAADAAwAAgAMAAIODAAAPgQAAH/EAAA/wAAAH8AAAB+AAAAfgAAAAIAAA4AAAAPADAAD4BwAA+D8AAA=="
+            alt="GeoGebra"
+            className="w-5 h-5"
+          />
+        )}
+        title="插入 GeoGebra"
+      />
     </div>
   );
 }

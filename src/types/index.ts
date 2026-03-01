@@ -7,9 +7,13 @@ export type ToolType =
   | 'line'
   | 'freedraw'
   | 'text'
+  | 'image'
+  | 'eraser'
   | 'star'
   | 'triangle'
-  | 'heart';
+  | 'heart'
+  | 'webpage'
+  | 'geogebra';
 
 export type StrokeStyle = 'solid' | 'dashed' | 'dotted';
 export type FillStyle = 'none' | 'hachure' | 'solid' | 'zigzag' | 'cross-hatch';
@@ -37,6 +41,9 @@ export interface Element {
   text: string;
   seed: number;
   rotation: number;
+  cornerStyle?: 'rounded' | 'sharp';
+  link?: string;
+  imageSrc?: string;
 }
 
 export interface AppState {

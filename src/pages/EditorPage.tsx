@@ -82,7 +82,7 @@ function EditorContent() {
         className="fixed top-4 left-4 z-[60] flex items-center gap-2 px-3 py-2 bg-white rounded-lg shadow-md hover:shadow-lg transition-all hover:bg-gray-50"
       >
         <ArrowLeft className="w-4 h-4 text-gray-600" />
-        <span className="text-sm text-gray-700">返回首页</span>
+        <span className="text-sm text-gray-700">返回</span>
       </Link>
 
       <Canvas />
