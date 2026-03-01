@@ -1,4 +1,4 @@
-import { useEffect } from 'react';
+import { useEffect, useRef, useCallback } from 'react';
 import { useParams, useNavigate, Link } from 'react-router-dom';
 import { ArrowLeft } from 'lucide-react';
 import { StoreProvider, useStore } from '../store';
@@ -12,44 +12,67 @@ function EditorContent() {
   const { state, dispatch } = useStore();
   const { projectId } = useParams<{ projectId: string }>();
   const navigate = useNavigate();
+  const isLoadedRef = useRef(false);
+  const lastSavedElementsRef = useRef<string | null>(null);
 
   useEffect(() => {
-    if (projectId) {
+    if (projectId && !isLoadedRef.current) {
+      isLoadedRef.current = true;
       const savedProjects = localStorage.getItem('excalidraw-projects');
       if (savedProjects) {
         const projects: Project[] = JSON.parse(savedProjects);
         const project = projects.find(p => p.id === projectId);
         if (project) {
           dispatch({ type: 'SET_ELEMENTS', payload: project.elements });
+          lastSavedElementsRef.current = JSON.stringify(project.elements);
         } else {
           navigate('/');
         }
+      } else {
+        navigate('/');
       }
     }
   }, [projectId, dispatch, navigate]);
 
-  useEffect(() => {
-    const saveProject = () => {
-      if (projectId && state.elements) {
-        const savedProjects = localStorage.getItem('excalidraw-projects');
-        if (savedProjects) {
-          const projects: Project[] = JSON.parse(savedProjects);
-          const updatedProjects = projects.map(p =>
-            p.id === projectId
-              ? { ...p, elements: state.elements, updatedAt: Date.now() }
-              : p
-          );
-          localStorage.setItem('excalidraw-projects', JSON.stringify(updatedProjects));
-        }
+  const saveProject = useCallback(() => {
+    if (!projectId || lastSavedElementsRef.current === null) return;
+    
+    const elementsStr = JSON.stringify(state.elements);
+    if (elementsStr === lastSavedElementsRef.current) return;
+    
+    lastSavedElementsRef.current = elementsStr;
+    
+    const savedProjects = localStorage.getItem('excalidraw-projects');
+    if (savedProjects) {
+      const projects: Project[] = JSON.parse(savedProjects);
+      const projectIndex = projects.findIndex(p => p.id === projectId);
+      if (projectIndex !== -1) {
+        projects[projectIndex] = {
+          ...projects[projectIndex],
+          elements: state.elements,
+          updatedAt: Date.now(),
+        };
+        localStorage.setItem('excalidraw-projects', JSON.stringify(projects));
       }
-    };
+    }
+  }, [projectId, state.elements]);
 
-    const interval = setInterval(saveProject, 5000);
-    return () => {
-      clearInterval(interval);
+  useEffect(() => {
+    if (isLoadedRef.current && lastSavedElementsRef.current !== null) {
+      saveProject();
+    }
+  }, [state.elements, saveProject]);
+
+  useEffect(() => {
+    const handleBeforeUnload = () => {
       saveProject();
     };
-  }, [state.elements, projectId]);
+    window.addEventListener('beforeunload', handleBeforeUnload);
+    return () => {
+      window.removeEventListener('beforeunload', handleBeforeUnload);
+      saveProject();
+    };
+  }, [saveProject]);
 
   return (
     <div className="w-screen h-screen overflow-hidden bg-white">

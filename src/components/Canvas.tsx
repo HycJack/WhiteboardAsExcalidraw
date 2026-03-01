@@ -876,6 +876,10 @@ export default function Canvas() {
   }, [render]);
 
   useEffect(() => {
+    render();
+  }, [state.elements, render]);
+
+  useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
       // 如果正在编辑文本，只处理ESC键
       if (editingTextElement) {
